@@ -1,0 +1,154 @@
+---
+title: "Built Environment and Life Expectancy by Country"
+author: "Joel P. Steadman and Farhaan Syed"
+date: "12/12/2019"
+output: html_document
+bibliography: notes_bib2.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library("tidyverse")
+library(readr)
+library(knitr)
+library(kableExtra)
+
+life_expectancy <- read_csv("./life_expectancy_years.csv")
+percent_roads_paved <- read_csv("./roads_paved_percent_of_total_roads.csv")
+population_density <- read_csv("./population_density_per_square_km.csv")
+
+# Use data from the year 2009 (most recent data in the percent_roads_paved data)
+life_expectancy_2009 <- life_expectancy %>%
+  mutate(life = `2009`) %>%
+  select(country, life)
+population_density_2009 <- population_density %>%
+  mutate(density = `2009`) %>%
+  select(country, density)
+
+# Get most recent data all the way back to the year 2000
+# If the most recent data is older than 2000, it can be left out as it won't be very reliable
+percent_roads_paved_most_recent <- percent_roads_paved %>%
+  mutate(roads = percent_roads_paved$`2009`,
+    roads = ifelse(is.na(roads), `2008`, roads),
+    roads = ifelse(is.na(roads), `2007`, roads),
+    roads = ifelse(is.na(roads), `2006`, roads),
+    roads = ifelse(is.na(roads), `2005`, roads),
+    roads = ifelse(is.na(roads), `2004`, roads),
+    roads = ifelse(is.na(roads), `2003`, roads),
+    roads = ifelse(is.na(roads), `2002`, roads),
+    roads = ifelse(is.na(roads), `2001`, roads),
+    roads = ifelse(is.na(roads), `2000`, roads)) %>%
+  select(country, roads) %>%
+  filter( !is.na(roads) )
+
+data <- percent_roads_paved_most_recent %>%
+  left_join( life_expectancy_2009, by="country" ) %>%
+  left_join( population_density_2009, by="country") %>%
+  filter( !is.na(life),
+          density < 6000) %>%
+  mutate( `Population Density` = density,
+    `Population Density` = ifelse(density < 42.9, '3) Low', `Population Density`),
+    `Population Density` = ifelse(density <= 114 & density >= 42.9, '2) Medium', `Population Density`),
+    `Population Density` = ifelse(density > 114, '1) High', `Population Density`) ) %>%
+  mutate( road_group = roads,
+          road_group = ifelse(roads <50, "Less than 50% roads paved", road_group),
+          road_group = ifelse(roads >=50, "More than 50% roads paved", road_group) )
+
+data2 <- data %>%
+  group_by(`Population Density`, road_group) %>%
+  summarize(
+    life_expectancy = mean(life)
+  )
+
+data3 <- data %>%
+  group_by(road_group) %>%
+  summarize(
+    life_expectancy = mean(life)
+  ) %>%
+  mutate( `Population Density` = 'All Countries')
+
+table <- data3 %>%
+  full_join(data2, by = c("life_expectancy" = "life_expectancy", "road_group" = "road_group", "Population Density" = "Population Density"))
+
+table <- table[c("Population Density", "road_group", "life_expectancy")]
+
+pretty <- table %>%
+  mutate( `Portion Of Roads Paved` = road_group) %>%
+  mutate( `Life Expectancy (Years)` = round(life_expectancy,1)) %>%
+  select( -`Population Density`, -road_group, -life_expectancy) %>%
+  kable(caption = "Figure 3: Life expectancy and proportion of roads paved, by Countries' Population Densities") %>%
+  kable_styling() %>%
+  footnote(general = "Data taken from years 2000-2009 in 174 countries")%>%
+  pack_rows( index = c( "All Countries" = 2, "High Population Density Countries" = 2, "Medium Population Density Countries" = 2, "Low Population Density Countries" = 2))
+
+data <- data %>%
+  mutate(`Percent of Roads that are Paved` = roads/100) %>%
+  mutate(`Life Expectancy (in Years)` = life) %>%
+  select(-roads, -life) %>%
+  mutate(`Log of Population Density` = log(density))
+```
+
+```{r results="asis"}
+cat("
+<style>
+  caption {
+    font-weight: bold;
+    font-size: 1.1em;
+  }
+</style>
+")
+```
+
+# Results Summary
+
+Our research found that the proportion of roads paved in a country is correlated with life expectancy even when adjusting for population density. As the percentage of roads paved in a country rises, the life expectancy of that country does as well. Population density, which was identified as a potential confounding variable, was found not to have a significant impact on these variables.
+
+# Methodology
+
+We found this data on a website published by the the Gapminder Foundation with data on economy, health, education, etc. organized by country and by year @GaDa:09. We combined data tables for life expectancy by year and country, proportion of roads paved by year and country, and population density by year and country. To our knowledge, no previous study has been published on the relationship between the proportion of roads paved and life expectancy. We did find some articles addressing the relationship between infrastructure and life quality of life specifically we found an article asserting a positive relationship between population density and road density and between road quality and quality of life (@GlSi:75). In this paper, we assume that the proportion of roads paved is somewhat of a good measure of the quality of infrastructure in a country and use this to compare our results to the assertions of the article by Glover and Simon.
+
+# Research
+
+In figure 1 we charted life expectancy against proportion of roads paved and color-coded population density by category for later reference.
+
+```{r figure1, echo=FALSE, warning=FALSE, message=FALSE}
+
+ggplot( data , aes(  x=`Percent of Roads that are Paved`, y=`Life Expectancy (in Years)`  ) ) +
+  geom_point( aes(color=`Population Density`) ) +
+  geom_smooth(method = "loess", se = FALSE, span = 1, color="black") + 
+  scale_color_manual(#breaks = c("8", "6", "4"),
+                     values=c("#4e00cc", "#038cfc", "#03f0fc")) + 
+  labs(title = "Infrastructure and Life Expectancy by Country", tag = "Figure 1") + 
+  scale_x_continuous(labels = scales::percent)
+```
+
+This data shows a fairly positive correlation between the proportion of roads paved and life expectancy. All countries with 50% or greater paved roads have a life expectancy of 65 or higher, whereas about half of countries with less than 50% paved roads have below that life expectancy. This could be the result of a confounding variable that is caused by and or causes both of these variables. We assumed this variable might be population density as the central point of the article we looked into was that higher population density affects road density. “If there are more people in a given geographic area, it will cost less per person to construct a common facility such as a road.” This would mean that population density makes roads more likely to be paved and makes living more cost efficient which could improve the life expectancy of a population. (@GlSi:75)
+
+To check whether the proportion of roads paved was correlated with life expectancy independent of population density, we graphed population density against proportion of roads paved and life expectancy.
+
+```{r figure2, echo=FALSE, warning=FALSE, message=FALSE}
+
+ggplot( data , aes(  x=`Log of Population Density`, y=`Percent of Roads that are Paved`, color=`Life Expectancy (in Years)` ) ) +
+  geom_point() + 
+  scale_colour_gradientn(
+    colors = c("yellow","darkblue"), 
+    limits=c(50,80),
+    oob = scales::squish) + 
+  labs(title = "Effect of Population Density on Countries' Infrastructure", tag = "Figure 2") + 
+  scale_y_continuous(labels = (scales::percent))
+```
+
+As shown in figure 2, the correlation between population density and the proportion of roads paved is small and it is unclear if any correlation between population density and life expectancy even exists. Meanwhile, the correlation between the proportion of roads paved and life expectancy in a country remains clearly positive.
+
+In order to further investigate the possibility of population density affecting our results, we measured life expectancy by 3 groups: 1) countries with population densities with higher than average population densities, 2) countries with about average population densities, and 3) countries with below average population densities. The countries were equally split between these three groups.
+
+```{r figure3, echo=FALSE, warning=FALSE, message=FALSE}
+
+pretty
+```
+
+Figure 3 shows that life expectancy is considerably greater in countries with greater than 50% paved roads across all countries and across all three population density subgroups. However, the relationship between population density and life expectancy as life expectancy decreases from 65.7 down to 65.1 and back up to 65.7 years in the “less than 50% roads paved” as population density increases. This .4 year change is also not significant especially when compared to the nearly 10 year difference that paved roads group indicates. 
+
+We are not claiming that paved roads have a direct impact on life expectency, but that there is some correlation between the two. It is likely that another variable (e.g. GDP) or category of variables (industrialization) links these two factors, but investigating this was outside of the scope of this paper.
+
+# References
